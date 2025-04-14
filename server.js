@@ -1,59 +1,47 @@
-// server.js - JWT token generation server with improved CORS
+// server.js - Updated for Vercel deployment
 const express = require('express');
 const jwt = require('jsonwebtoken');
 const cors = require('cors');
 const crypto = require('crypto');
-const fs = require('fs');
+
+// Create Express app
 const app = express();
-const port = 3000;
 
-// Configure CORS more explicitly
-const corsOptions = {
-  origin: ['http://localhost:5500', 'http://127.0.0.1:5500', 'http://localhost:3000'],
+// Enable CORS
+app.use(cors({
+  origin: '*',  // Allow all origins for testing
   methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true,
-  optionsSuccessStatus: 200
-};
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 
-// Enable CORS for all routes
-app.use(cors(corsOptions));
+// Parse JSON request bodies
+app.use(express.json());
 
-// Add pre-flight OPTIONS for all routes
-app.options('*', cors(corsOptions));
-
-// Load the private key - In production, store this securely and use environment variables
-// You will need to generate a private-public key pair for your Tableau Connected App
-const privateKey = fs.readFileSync('private.key', 'utf8');
-
-// Connected App client ID from Tableau (use your actual client ID)
-const clientId = '44b8edb0-ec57-475a-ab66-97df5ded751c'; // From your Connected App
-
-// Token expiration time (in seconds)
-const tokenExpirySeconds = 3600; // 1 hour
-
-// Add additional headers for CORS
-app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  next();
-});
-
-app.get('/token', (req, res) => {
+// Main handler function for Vercel
+const handler = async (req, res) => {
   try {
-    // Get the email and subscription level from the query params
-    const email = req.query.email || 'guest@example.com';
-    const level = req.query.level || 'Light';
-    const isAdmin = req.query.isAdmin === 'true';
+    // Get the email and subscription level from the query params (GET) or request body (POST)
+    const email = req.query.email || req.body?.email || 'guest@example.com';
+    const level = req.query.level || req.body?.level || 'Light';
+    const isAdmin = (req.query.isAdmin === 'true' || req.body?.isAdmin === true);
     
     console.log(`Generating token for: ${email}, Level: ${level}, Admin: ${isAdmin}`);
+    
+    // Get private key from environment variable instead of file system
+    // This should be added in Vercel environment variables
+    const privateKey = process.env.PRIVATE_KEY_BASE64 ? 
+      Buffer.from(process.env.PRIVATE_KEY_BASE64, 'base64').toString('utf-8') : 
+      'DEFAULT_PRIVATE_KEY_FOR_TESTING';
+    
+    // Get client ID from environment variables
+    const clientId = process.env.TABLEAU_CLIENT_ID || '44b8edb0-ec57-475a-ab66-97df5ded751c';
     
     // Generate a unique JWT ID
     const jwtId = crypto.randomBytes(16).toString('hex');
     
     // Current time in seconds
     const now = Math.floor(Date.now() / 1000);
+    const tokenExpirySeconds = 3600; // 1 hour
     
     // Create the JWT payload
     const payload = {
@@ -90,21 +78,29 @@ app.get('/token', (req, res) => {
     
   } catch (error) {
     console.error('Error generating token:', error);
-    res.status(500).json({ error: 'Failed to generate token', message: error.message });
+    res.status(500).json({ 
+      error: 'Failed to generate token', 
+      message: error.message,
+      stack: process.env.NODE_ENV === 'production' ? null : error.stack
+    });
   }
-});
+};
 
-// Add a route to test the server
+// Express routes
 app.get('/', (req, res) => {
   res.send('JWT Server is running. Use /token endpoint to generate a token.');
 });
 
-// Add a specific health check endpoint
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok', time: new Date().toISOString() });
-});
+app.get('/token', handler);
+app.post('/token', handler);
 
-app.listen(port, () => {
-  console.log(`JWT Server listening at http://localhost:${port}`);
-  console.log(`CORS enabled for: ${corsOptions.origin.join(', ')}`);
-});
+// For local testing
+if (process.env.NODE_ENV !== 'production') {
+  const port = process.env.PORT || 3000;
+  app.listen(port, () => {
+    console.log(`JWT Server listening at http://localhost:${port}`);
+  });
+}
+
+// Export handler for Vercel
+module.exports = app;
