@@ -1,4 +1,4 @@
-// server.js - Updated for Vercel deployment
+// server.js - Updated for Vercel deployment with API key authentication
 const express = require('express');
 const jwt = require('jsonwebtoken');
 const cors = require('cors');
@@ -11,11 +11,32 @@ const app = express();
 app.use(cors({
   origin: '*',  // Allow all origins for testing
   methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key']  // Added X-API-Key header
 }));
 
 // Parse JSON request bodies
 app.use(express.json());
+
+// API key validation middleware
+const validateApiKey = (req, res, next) => {
+  // Get API key from header
+  const apiKey = req.headers['x-api-key'];
+  const expectedApiKey = process.env.API_KEY;
+  
+  // Skip validation if API_KEY is not set in environment (for development)
+  if (!expectedApiKey) {
+    console.warn('API_KEY environment variable not set. Skipping API key validation.');
+    return next();
+  }
+  
+  // Validate API key
+  if (!apiKey || apiKey !== expectedApiKey) {
+    console.log('Unauthorized request: Invalid or missing API key');
+    return res.status(401).json({ error: 'Unauthorized. Valid API key required.' });
+  }
+  
+  next();
+};
 
 // Main handler function for Vercel
 const handler = async (req, res) => {
@@ -91,8 +112,9 @@ app.get('/', (req, res) => {
   res.send('JWT Server is running. Use /token endpoint to generate a token.');
 });
 
-app.get('/token', handler);
-app.post('/token', handler);
+// Apply API key validation to token endpoints
+app.get('/token', validateApiKey, handler);
+app.post('/token', validateApiKey, handler);
 
 // For local testing
 if (process.env.NODE_ENV !== 'production') {
